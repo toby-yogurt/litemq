@@ -439,8 +439,8 @@ kubectl apply -f deployments/k8s/
 
 ## 📞 联系我们
 
-- 项目主页: [https://github.com/your-org/litemq](https://github.com/your-org/litemq)
-- 问题反馈: [https://github.com/your-org/litemq/issues](https://github.com/your-org/litemq/issues)
+- 项目主页: [https://github.com/toby-yogurt/litemq](https://github.com/your-org/litemq)
+- 问题反馈: [https://github.com/toby-yogurt/litemq/issues](https://github.com/your-org/litemq/issues)
 - 邮箱: your-email@example.com
 
 ---
