@@ -1,0 +1,60 @@
+// LiteMQ Message Definition
+
+syntax = "proto3";
+
+package litemq.common;
+option go_package = "litemq/api/proto";
+
+// 消息定义
+message Message {
+  string message_id = 1;
+  string topic = 2;
+  repeated string tags = 3;
+  repeated string keys = 4;
+  map<string, string> properties = 5;
+  bytes body = 6;
+  MessageType message_type = 7;
+  int32 priority = 8;
+  int32 reliability = 9;
+  int64 delay_time = 10;
+  string transaction_id = 11;
+  MessageStatus message_status = 12;
+  string sharding_key = 13;
+  bool broadcast = 14;
+  int64 born_timestamp = 15;
+  string born_host = 16;
+  string store_host = 17;
+  int32 queue_id = 18;
+  int64 queue_offset = 19;
+  int64 commit_log_offset = 20;
+  int32 store_size = 21;
+  int64 store_timestamp = 22;
+  int64 consume_start_time = 23;
+  int64 consume_end_time = 24;
+  int32 consume_count = 25;
+}
+
+// 消息类型枚举
+enum MessageType {
+  NORMAL = 0;
+  DELAY = 1;
+  TRANSACTION = 2;
+  BROADCAST = 3;
+  ORDER = 4;
+}
+
+// 消息状态枚举
+enum MessageStatus {
+  NORMAL_STATUS = 0;
+  PREPARED = 1;
+  ROLLBACK = 2;
+  COMMIT = 3;
+  DEAD = 4;
+}
+
+// 消费状态枚举
+enum ConsumeStatus {
+  SUCCESS = 0;
+  RETRY = 1;
+  FAIL = 2;
+}

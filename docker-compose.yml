@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  nameserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.nameserver
+    ports:
+      - "9876:9876"
+    volumes:
+      - ./data/nameserver:/app/data
+    networks:
+      - litemq
+    restart: unless-stopped
+
+  broker-master:
+    build:
+      context: .
+      dockerfile: Dockerfile.broker
+    ports:
+      - "10911:10911"
+      - "8080:8080"  # metrics port
+    volumes:
+      - ./data/broker-master:/app/data
+    environment:
+      - BROKER_ID=broker-master
+      - BROKER_ROLE=master
+      - NAMESERVERS=nameserver:9876
+    depends_on:
+      - nameserver
+    networks:
+      - litemq
+    restart: unless-stopped
+
+  broker-slave:
+    build:
+      context: .
+      dockerfile: Dockerfile.broker
+    ports:
+      - "10912:10911"
+      - "8081:8080"  # metrics port
+    volumes:
+      - ./data/broker-slave:/app/data
+    environment:
+      - BROKER_ID=broker-slave
+      - BROKER_ROLE=slave
+      - MASTER_ADDR=broker-master:10911
+      - NAMESERVERS=nameserver:9876
+    depends_on:
+      - nameserver
+      - broker-master
+    networks:
+      - litemq
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deployments/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./data/prometheus:/prometheus
+    networks:
+      - litemq
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - litemq
+    restart: unless-stopped
+
+networks:
+  litemq:
+    driver: bridge
+
+volumes:
+  nameserver_data:
+  broker_master_data:
+  broker_slave_data:
+  prometheus_data:
+  grafana_data:

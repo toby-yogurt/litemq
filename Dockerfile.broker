@@ -1,0 +1,41 @@
+# LiteMQ Broker Dockerfile
+
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build Broker
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o broker ./cmd/broker
+
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+WORKDIR /app/
+
+# Copy binary
+COPY --from=builder /app/broker .
+
+# Copy config
+COPY configs/broker.toml ./configs/
+
+# Create data directory
+RUN mkdir -p /app/data
+
+# Expose ports
+EXPOSE 10911 8080
+
+# Environment variables
+ENV BROKER_ID=${BROKER_ID:-broker-1}
+ENV BROKER_ROLE=${BROKER_ROLE:-master}
+ENV NAMESERVERS=${NAMESERVERS:-localhost:9876}
+ENV MASTER_ADDR=${MASTER_ADDR:-}
+
+# Command
+CMD ["./broker"]

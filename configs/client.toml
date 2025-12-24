@@ -1,0 +1,29 @@
+# LiteMQ Client Configuration
+
+# NameServer配置
+nameservers = ["localhost:9876"]
+
+# 连接配置
+[connection]
+connect_timeout = "3s"
+read_timeout = "3s"
+write_timeout = "3s"
+
+# 重试配置
+[retry]
+max_retries = 3
+retry_interval = "1s"
+
+# 批量配置
+[batch]
+batch_size = 100
+batch_timeout = "1s"
+
+# 消费者配置
+[consumer]
+group_name = "default_group"
+consume_from_where = "last"      # first, last, timestamp
+consume_timestamp = 0
+pull_batch_size = 32
+pull_interval = "0s"
+consume_timeout = "15s"

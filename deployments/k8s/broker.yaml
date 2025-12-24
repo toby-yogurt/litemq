@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: broker-config
+  namespace: litemq
+data:
+  broker.toml: |
+    broker_id = "broker-1"
+    broker_name = "broker-1"
+
+    [network]
+    host = "0.0.0.0"
+    port = 10911
+
+    nameservers = ["nameserver.litemq.svc.cluster.local:9876"]
+
+    [replication]
+    role = "master"
+    mode = "async"
+
+    [storage]
+    data_path = "/data"
+    flush_mode = "async"
+
+    [commitlog]
+    file_size = 1073741824
+    max_files = 100
+
+    [consumequeue]
+    file_size = 600000000
+    max_files = 100
+
+    max_message_size = 4194304
+
+    [heartbeat]
+    interval = "30s"
+
+    max_consumer_connections = 1000
+
+    [metrics]
+    enabled = true
+    port = 8080
+    path = "/metrics"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broker
+  namespace: litemq
+  labels:
+    app: broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker
+  template:
+    metadata:
+      labels:
+        app: broker
+    spec:
+      containers:
+      - name: broker
+        image: litemq:latest
+        command: ["./broker"]
+        args: ["-config", "/config/broker.toml"]
+        ports:
+        - containerPort: 10911
+          name: broker
+        - containerPort: 8080
+          name: metrics
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+        - name: data-volume
+          mountPath: /data
+        env:
+        - name: BROKER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: config-volume
+        configMap:
+          name: broker-config
+      - name: data-volume
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: broker
+  namespace: litemq
+  labels:
+    app: broker
+spec:
+  selector:
+    app: broker
+  ports:
+  - port: 10911
+    targetPort: 10911
+    name: broker
+  - port: 8080
+    targetPort: 8080
+    name: metrics
+  type: ClusterIP

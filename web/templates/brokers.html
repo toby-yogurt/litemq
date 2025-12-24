@@ -1,0 +1,120 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-server me-2"></i>Brokers</h1>
+    <button class="btn btn-primary" onclick="refreshBrokers()">
+        <i class="bi bi-arrow-clockwise me-2"></i>
+        刷新
+    </button>
+</div>
+
+<!-- Brokers列表 -->
+<div class="card">
+    <div class="card-header">
+        <h5><i class="bi bi-list me-2"></i>Broker列表</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>地址</th>
+                        <th>状态</th>
+                        <th>角色</th>
+                        <th>主题数量</th>
+                        <th>消息数量</th>
+                        <th>最后更新</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Brokers}}
+                    <tr>
+                        <td>{{.ID}}</td>
+                        <td>{{.Address}}</td>
+                        <td>
+                            <span class="badge bg-{{if eq .Status "online"}}success{{else}}danger{{end}}">
+                                {{.Status}}
+                            </span>
+                        </td>
+                        <td>{{.Role}}</td>
+                        <td>{{.Topics}}</td>
+                        <td>{{.Messages}}</td>
+                        <td>{{.LastUpdate}}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" onclick="viewBroker('{{.ID}}')">
+                                查看
+                            </button>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr>
+                        <td colspan="8" class="text-center text-muted">暂无Broker</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Broker详情模态框 -->
+<div class="modal fade" id="brokerModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Broker详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="brokerDetails">
+                <!-- 动态加载内容 -->
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+<script>
+function refreshBrokers() {
+    location.reload();
+}
+
+function viewBroker(brokerId) {
+    // 获取Broker详情
+    fetch(`/api/v1/broker/info?id=${brokerId}`)
+        .then(response => response.json())
+        .then(data => {
+            const details = document.getElementById('brokerDetails');
+            details.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>基本信息</h6>
+                        <p><strong>ID:</strong> ${data.broker_id || 'N/A'}</p>
+                        <p><strong>名称:</strong> ${data.broker_name || 'N/A'}</p>
+                        <p><strong>地址:</strong> ${data.address || 'N/A'}</p>
+                        <p><strong>角色:</strong> ${data.role || 'N/A'}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>统计信息</h6>
+                        <p><strong>总消息数:</strong> ${data.total_messages || 0}</p>
+                        <p><strong>活跃连接:</strong> ${data.active_connections || 0}</p>
+                        <p><strong>存储使用:</strong> ${formatBytes(data.storage_used || 0)}</p>
+                    </div>
+                </div>
+            `;
+            new bootstrap.Modal(document.getElementById('brokerModal')).show();
+        })
+        .catch(error => {
+            console.error('获取Broker详情失败:', error);
+            alert('获取Broker详情失败');
+        });
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+</script>

@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nameserver-config
+  namespace: litemq
+data:
+  nameserver.toml: |
+    host = "0.0.0.0"
+    port = 9876
+
+    [heartbeat]
+    interval = "30s"
+    timeout = "90s"
+
+    [route]
+    update_interval = "30s"
+
+    data_path = "/data"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nameserver
+  namespace: litemq
+  labels:
+    app: nameserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nameserver
+  template:
+    metadata:
+      labels:
+        app: nameserver
+    spec:
+      containers:
+      - name: nameserver
+        image: litemq:latest
+        command: ["./nameserver"]
+        args: ["-config", "/config/nameserver.toml"]
+        ports:
+        - containerPort: 9876
+          name: nameserver
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+        - name: data-volume
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9876
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9876
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config-volume
+        configMap:
+          name: nameserver-config
+      - name: data-volume
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nameserver
+  namespace: litemq
+  labels:
+    app: nameserver
+spec:
+  selector:
+    app: nameserver
+  ports:
+  - port: 9876
+    targetPort: 9876
+    name: nameserver
+  type: ClusterIP

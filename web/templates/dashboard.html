@@ -1,0 +1,171 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-speedometer2 me-2"></i>仪表板</h1>
+    <small class="text-muted">LiteMQ 集群状态概览</small>
+</div>
+
+<!-- 统计卡片 -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title mb-0">{{.Stats.Brokers}}</h5>
+                        <small>Brokers</small>
+                    </div>
+                    <i class="bi bi-server fs-1 opacity-75"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title mb-0">{{.Stats.Topics}}</h5>
+                        <small>主题</small>
+                    </div>
+                    <i class="bi bi-tag fs-1 opacity-75"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title mb-0">{{.Stats.Consumers}}</h5>
+                        <small>消费者</small>
+                    </div>
+                    <i class="bi bi-people fs-1 opacity-75"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title mb-0">{{.Stats.Messages}}</h5>
+                        <small>消息</small>
+                    </div>
+                    <i class="bi bi-envelope fs-1 opacity-75"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 系统状态 -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-activity me-2"></i>系统状态</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <span>NameServer</span>
+                    <span class="badge bg-success">运行中</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span>Broker Master</span>
+                    <span class="badge bg-success">运行中</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span>Broker Slave</span>
+                    <span class="badge bg-success">运行中</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-clock me-2"></i>最近活动</h5>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    <div class="timeline-item mb-2">
+                        <small class="text-muted">2分钟前</small>
+                        <div>Broker broker-1 加入集群</div>
+                    </div>
+                    <div class="timeline-item mb-2">
+                        <small class="text-muted">5分钟前</small>
+                        <div>主题 test_topic 创建成功</div>
+                    </div>
+                    <div class="timeline-item">
+                        <small class="text-muted">10分钟前</small>
+                        <div>消费者组 test_group 启动</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 快速操作 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-gear me-2"></i>快速操作</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <button class="btn btn-primary w-100" onclick="createTopic()">
+                            <i class="bi bi-plus-circle me-2"></i>
+                            创建主题
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-success w-100" onclick="viewMetrics()">
+                            <i class="bi bi-graph-up me-2"></i>
+                            查看指标
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-info w-100" onclick="viewLogs()">
+                            <i class="bi bi-file-text me-2"></i>
+                            查看日志
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-warning w-100" onclick="systemInfo()">
+                            <i class="bi bi-info-circle me-2"></i>
+                            系统信息
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+<script>
+function createTopic() {
+    // 实现创建主题的逻辑
+    alert('创建主题功能');
+}
+
+function viewMetrics() {
+    window.location.href = '/metrics';
+}
+
+function viewLogs() {
+    // 实现查看日志的逻辑
+    alert('查看日志功能');
+}
+
+function systemInfo() {
+    // 实现系统信息的逻辑
+    alert('系统信息功能');
+}
+</script>

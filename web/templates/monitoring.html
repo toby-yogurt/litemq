@@ -1,0 +1,196 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-graph-up me-2"></i>监控</h1>
+    <div>
+        <a href="{{.MetricsURL}}" target="_blank" class="btn btn-outline-primary me-2">
+            <i class="bi bi-box-arrow-up-right me-1"></i>
+            Prometheus 指标
+        </a>
+        <button class="btn btn-primary" onclick="refreshMetrics()">
+            <i class="bi bi-arrow-clockwise me-1"></i>
+            刷新
+        </button>
+    </div>
+</div>
+
+<!-- 指标概览 -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-envelope me-2"></i>消息统计</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6">
+                        <div class="text-center">
+                            <h4 class="text-primary">{{.Stats.messages_sent}}</h4>
+                            <small class="text-muted">发送消息</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-center">
+                            <h4 class="text-success">{{.Stats.messages_received}}</h4>
+                            <small class="text-muted">接收消息</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-server me-2"></i>系统状态</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6">
+                        <div class="text-center">
+                            <h4 class="text-info">{{.Stats.active_connections}}</h4>
+                            <small class="text-muted">活跃连接</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-center">
+                            <h4 class="text-warning">{{.Stats.total_connections}}</h4>
+                            <small class="text-muted">总连接数</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 业务指标 -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-tag fs-1 text-success mb-2"></i>
+                <h3>{{.Stats.topics_total}}</h3>
+                <p class="text-muted mb-0">主题数量</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-people fs-1 text-info mb-2"></i>
+                <h3>{{.Stats.consumers_total}}</h3>
+                <p class="text-muted mb-0">消费者数量</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-server fs-1 text-primary mb-2"></i>
+                <h3>{{.Stats.brokers_total}}</h3>
+                <p class="text-muted mb-0">Broker数量</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 存储指标 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-hdd me-2"></i>存储统计</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h4 class="text-primary">{{formatBytes .Stats.storage_used}}</h4>
+                            <small class="text-muted">已用存储</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h4 class="text-info">{{formatBytes .Stats.commitlog_size}}</h4>
+                            <small class="text-muted">CommitLog 大小</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h4 class="text-warning">{{.Stats.queue_size}}</h4>
+                            <small class="text-muted">队列大小</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 错误统计 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-exclamation-triangle me-2"></i>错误统计</h5>
+            </div>
+            <div class="card-body">
+                <div class="text-center">
+                    <h2 class="text-danger">{{.Stats.errors_total}}</h2>
+                    <p class="text-muted mb-0">总错误数</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 图表区域 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-bar-chart me-2"></i>性能图表</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-2"></i>
+                    图表功能需要集成Grafana或其他可视化工具。
+                    当前显示的是静态数据，实际部署时会显示实时指标图表。
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <canvas id="messageChart" width="400" height="200"></canvas>
+                    </div>
+                    <div class="col-md-6">
+                        <canvas id="connectionChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// 格式化字节数
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// 刷新指标
+function refreshMetrics() {
+    location.reload();
+}
+
+// 简单的图表示例
+document.addEventListener('DOMContentLoaded', function() {
+    // 这里可以添加Chart.js图表初始化代码
+    console.log('Monitoring page loaded');
+});
+</script>

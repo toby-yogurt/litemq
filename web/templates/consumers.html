@@ -1,0 +1,197 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-people me-2"></i>消费者管理</h1>
+    <button class="btn btn-primary" onclick="refreshConsumers()">
+        <i class="bi bi-arrow-clockwise me-2"></i>
+        刷新
+    </button>
+</div>
+
+<!-- 消费者组列表 -->
+<div class="card">
+    <div class="card-header">
+        <h5><i class="bi bi-list me-2"></i>消费者组列表</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>组名</th>
+                        <th>消费者数量</th>
+                        <th>订阅主题</th>
+                        <th>状态</th>
+                        <th>消息堆积</th>
+                        <th>最后消费</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .ConsumerGroups}}
+                    <tr>
+                        <td>{{.GroupName}}</td>
+                        <td>{{.Consumers}}</td>
+                        <td>
+                            {{range $index, $topic := .Topics}}
+                                {{if $index}}, {{end}}{{$topic}}
+                            {{end}}
+                        </td>
+                        <td>
+                            <span class="badge bg-{{if eq .Status "active"}}success{{else}}warning{{end}}">
+                                {{.Status}}
+                            </span>
+                        </td>
+                        <td>{{.Lag}}</td>
+                        <td>{{formatTime .LastConsume}}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-info" onclick="viewConsumerGroup('{{.GroupName}}')">
+                                查看
+                            </button>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted">暂无消费者组</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 消费者组详情模态框 -->
+<div class="modal fade" id="consumerGroupModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">消费者组详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="consumerGroupDetails">
+                <!-- 动态加载内容 -->
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+<script>
+function refreshConsumers() {
+    location.reload();
+}
+
+function viewConsumerGroup(groupName) {
+    // 获取消费者组详情
+    fetch(`/api/v1/broker/consumers/${groupName}`)
+        .then(response => response.json())
+        .then(data => {
+            const details = document.getElementById('consumerGroupDetails');
+            details.innerHTML = `
+                <div class="row">
+                    <div class="col-md-12">
+                        <h6>基本信息</h6>
+                        <div class="row mb-3">
+                            <div class="col-md-3"><strong>组名:</strong> ${data.group_name || groupName}</div>
+                            <div class="col-md-3"><strong>状态:</strong> <span class="badge bg-success">活跃</span></div>
+                            <div class="col-md-3"><strong>消费者数:</strong> ${data.consumers || 0}</div>
+                            <div class="col-md-3"><strong>订阅主题:</strong> ${data.topics ? data.topics.length : 0}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>消费者列表</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>消费者ID</th>
+                                        <th>状态</th>
+                                        <th>最后心跳</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(data.consumer_list || []).map(consumer => `
+                                        <tr>
+                                            <td>${consumer.id}</td>
+                                            <td><span class="badge bg-success">在线</span></td>
+                                            <td>${new Date(consumer.last_heartbeat).toLocaleString()}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <h6>订阅主题</h6>
+                        <div class="list-group">
+                            ${(data.topics || []).map(topic => `
+                                <div class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">${topic.name}</h6>
+                                        <small>分区: ${topic.partitions || 1}</small>
+                                    </div>
+                                    <p class="mb-1">当前偏移: ${topic.current_offset || 0}</p>
+                                    <small class="text-muted">堆积消息: ${topic.lag || 0}</small>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-3">
+                    <div class="col-md-12">
+                        <h6>消费统计</h6>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h5 class="card-title text-success">${data.total_consumed || 0}</h5>
+                                        <p class="card-text">总消费消息</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h5 class="card-title text-warning">${data.total_lag || 0}</h5>
+                                        <p class="card-text">消息堆积</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h5 class="card-title text-info">${data.avg_consume_rate || 0}/s</h5>
+                                        <p class="card-text">平均消费速率</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h5 class="card-title text-primary">${formatTime(data.last_consume_time)}</h5>
+                                        <p class="card-text">最后消费时间</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            new bootstrap.Modal(document.getElementById('consumerGroupModal')).show();
+        })
+        .catch(error => {
+            console.error('获取消费者组详情失败:', error);
+            alert('获取消费者组详情失败');
+        });
+}
+
+function formatTime(timestamp) {
+    if (!timestamp) return '未知';
+    return new Date(timestamp).toLocaleString();
+}
+</script>

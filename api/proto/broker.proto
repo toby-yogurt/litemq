@@ -1,0 +1,110 @@
+// LiteMQ Broker gRPC Service Definition
+
+syntax = "proto3";
+
+package litemq.broker;
+option go_package = "litemq/api/proto";
+
+// 导入消息定义
+import "message.proto";
+
+// Broker服务
+service BrokerService {
+  // 发送消息
+  rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
+
+  // 批量发送消息
+  rpc SendMessages (SendMessagesRequest) returns (SendMessagesResponse);
+
+  // 拉取消息
+  rpc PullMessage (PullMessageRequest) returns (PullMessageResponse);
+
+  // 消费确认
+  rpc AckMessage (AckMessageRequest) returns (AckMessageResponse);
+
+  // 注册消费者
+  rpc RegisterConsumer (RegisterConsumerRequest) returns (RegisterConsumerResponse);
+
+  // 心跳
+  rpc Heartbeat (HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// 发送消息请求
+message SendMessageRequest {
+  litemq.common.Message message = 1;
+}
+
+// 发送消息响应
+message SendMessageResponse {
+  string message_id = 1;
+  int64 offset = 2;
+  int32 queue_id = 3;
+  string error = 4;
+}
+
+// 批量发送消息请求
+message SendMessagesRequest {
+  repeated litemq.common.Message messages = 1;
+}
+
+// 批量发送消息响应
+message SendMessagesResponse {
+  repeated string message_ids = 1;
+  repeated int64 offsets = 2;
+  repeated int32 queue_ids = 3;
+  string error = 4;
+}
+
+// 拉取消息请求
+message PullMessageRequest {
+  string group_name = 1;
+  string topic = 2;
+  int32 queue_id = 3;
+  int64 offset = 4;
+  int32 max_count = 5;
+}
+
+// 拉取消息响应
+message PullMessageResponse {
+  repeated litemq.common.Message messages = 1;
+  string error = 2;
+}
+
+// 消费确认请求
+message AckMessageRequest {
+  string group_name = 1;
+  string topic = 2;
+  int32 queue_id = 3;
+  int64 offset = 4;
+}
+
+// 消费确认响应
+message AckMessageResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// 注册消费者请求
+message RegisterConsumerRequest {
+  string group_name = 1;
+  string consumer_id = 2;
+  repeated string topics = 3;
+}
+
+// 注册消费者响应
+message RegisterConsumerResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// 心跳请求
+message HeartbeatRequest {
+  string group_name = 1;
+  string consumer_id = 2;
+}
+
+// 心跳响应
+message HeartbeatResponse {
+  bool success = 1;
+  string error = 2;
+}

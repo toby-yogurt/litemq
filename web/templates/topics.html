@@ -1,0 +1,208 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-tag me-2"></i>主题管理</h1>
+    <div>
+        <button class="btn btn-success me-2" onclick="createTopic()">
+            <i class="bi bi-plus-circle me-2"></i>
+            创建主题
+        </button>
+        <button class="btn btn-primary" onclick="refreshTopics()">
+            <i class="bi bi-arrow-clockwise me-2"></i>
+            刷新
+        </button>
+    </div>
+</div>
+
+<!-- 主题列表 -->
+<div class="card">
+    <div class="card-header">
+        <h5><i class="bi bi-list me-2"></i>主题列表</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>主题名称</th>
+                        <th>分区数量</th>
+                        <th>消息数量</th>
+                        <th>消费者数量</th>
+                        <th>最后更新</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Topics}}
+                    <tr>
+                        <td>{{.Name}}</td>
+                        <td>{{.Partitions}}</td>
+                        <td>{{.Messages}}</td>
+                        <td>{{.Consumers}}</td>
+                        <td>{{.LastUpdated}}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-info me-1" onclick="viewTopic('{{.Name}}')">
+                                查看
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteTopic('{{.Name}}')">
+                                删除
+                            </button>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">暂无主题</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 创建主题模态框 -->
+<div class="modal fade" id="createTopicModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">创建主题</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createTopicForm">
+                    <div class="mb-3">
+                        <label for="topicName" class="form-label">主题名称</label>
+                        <input type="text" class="form-control" id="topicName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="partitions" class="form-label">分区数量</label>
+                        <input type="number" class="form-control" id="partitions" value="1" min="1" max="100">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="submitCreateTopic()">创建</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 主题详情模态框 -->
+<div class="modal fade" id="topicModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">主题详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="topicDetails">
+                <!-- 动态加载内容 -->
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+<script>
+function refreshTopics() {
+    location.reload();
+}
+
+function createTopic() {
+    new bootstrap.Modal(document.getElementById('createTopicModal')).show();
+}
+
+function submitCreateTopic() {
+    const topicName = document.getElementById('topicName').value;
+    const partitions = document.getElementById('partitions').value;
+
+    if (!topicName.trim()) {
+        alert('请输入主题名称');
+        return;
+    }
+
+    fetch(`/api/v1/broker/topics/${topicName}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            partitions: parseInt(partitions)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'created') {
+            alert('主题创建成功');
+            bootstrap.Modal.getInstance(document.getElementById('createTopicModal')).hide();
+            location.reload();
+        } else {
+            alert('主题创建失败: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('创建主题失败:', error);
+        alert('创建主题失败');
+    });
+}
+
+function viewTopic(topicName) {
+    // 获取主题详情
+    fetch(`/api/v1/broker/topics/${topicName}`)
+        .then(response => response.json())
+        .then(data => {
+            const details = document.getElementById('topicDetails');
+            details.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>基本信息</h6>
+                        <p><strong>名称:</strong> ${topicName}</p>
+                        <p><strong>分区数:</strong> ${data.partitions || 1}</p>
+                        <p><strong>状态:</strong> <span class="badge bg-success">活跃</span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>统计信息</h6>
+                        <p><strong>消息数:</strong> ${data.messages || 0}</p>
+                        <p><strong>消费者数:</strong> ${data.consumers || 0}</p>
+                        <p><strong>创建时间:</strong> ${new Date().toLocaleString()}</p>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <h6>消费者组</h6>
+                    <ul class="list-group">
+                        <li class="list-group-item">consumer-group-1 (活跃)</li>
+                        <li class="list-group-item">consumer-group-2 (活跃)</li>
+                    </ul>
+                </div>
+            `;
+            new bootstrap.Modal(document.getElementById('topicModal')).show();
+        })
+        .catch(error => {
+            console.error('获取主题详情失败:', error);
+            alert('获取主题详情失败');
+        });
+}
+
+function deleteTopic(topicName) {
+    if (!confirm(`确定要删除主题 "${topicName}" 吗？`)) {
+        return;
+    }
+
+    fetch(`/api/v1/broker/topics/${topicName}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'deleted') {
+            alert('主题删除成功');
+            location.reload();
+        } else {
+            alert('主题删除失败: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('删除主题失败:', error);
+        alert('删除主题失败');
+    });
+}
+</script>

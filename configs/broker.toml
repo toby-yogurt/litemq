@@ -1,0 +1,63 @@
+# LiteMQ Broker Configuration
+
+# 基本配置
+broker_id = "broker-1"
+broker_name = "broker-1"
+
+# 网络配置
+[network]
+host = "0.0.0.0"
+port = 10911
+
+# NameServer配置
+nameservers = ["localhost:9876"]
+
+# 主从配置
+[replication]
+role = "master"           # master or slave
+master_addr = ""          # 仅slave需要配置
+slave_id = 1              # slave ID
+mode = "async"            # sync or async
+
+# 存储配置
+[storage]
+data_path = "./data/broker"
+flush_mode = "async"      # sync or async
+flush_interval = "1s"
+
+# CommitLog配置
+[commitlog]
+file_size = 1073741824    # 1GB
+max_files = 100
+
+# ConsumeQueue配置
+[consumequeue]
+file_size = 600000000     # 600MB
+max_files = 100
+
+# 消息配置
+max_message_size = 4194304 # 4MB
+
+# 心跳配置
+[heartbeat]
+interval = "30s"
+
+# 消费者配置
+max_consumer_connections = 1000
+
+# 监控配置
+[metrics]
+enabled = true
+port = 18080
+path = "/metrics"
+
+# 日志配置
+[log]
+level = "info"          # 日志级别: debug, info, warn, error
+format = "text"         # 输出格式: text, json
+output = "file"         # 输出目标: stdout, stderr, file
+file_path = "./logs/broker.log"  # 日志文件路径
+max_size = 100          # 单个日志文件最大大小(MB)
+max_age = 30            # 日志文件保留天数
+max_backups = 10        # 最大备份文件数
+compress = true         # 是否压缩旧日志文件
