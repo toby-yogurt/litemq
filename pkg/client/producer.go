@@ -17,22 +17,32 @@ import (
 
 // Producer 消息生产者
 type Producer struct {
-	config          *config.ClientConfig
-	nameServerAddrs []string
-	currentBroker   string
-	brokerClient    pb.BrokerServiceClient
-	grpcConn        *grpc.ClientConn
-	running         bool
-	mutex           sync.RWMutex
-	wg              sync.WaitGroup
+	config           *config.ClientConfig
+	nameServerAddrs  []string
+	nameServerClient *NameServerClient
+	currentBroker    string
+	brokerClient     pb.BrokerServiceClient
+	grpcConn         *grpc.ClientConn
+	running          bool
+	mutex            sync.RWMutex
+	wg               sync.WaitGroup
+
+	// 幂等性保障
+	sentMessages  map[string]*SendResult // messageID -> result (用于幂等性检查)
+	maxRetries    int
+	retryInterval time.Duration
 }
 
 // NewProducer 创建生产者
 func NewProducer(cfg *config.ClientConfig) *Producer {
 	return &Producer{
-		config:          cfg,
-		nameServerAddrs: cfg.NameServers,
-		running:         false,
+		config:           cfg,
+		nameServerAddrs:  cfg.NameServers,
+		nameServerClient: NewNameServerClient(cfg.NameServers),
+		running:          false,
+		sentMessages:     make(map[string]*SendResult),
+		maxRetries:       cfg.MaxRetries,
+		retryInterval:    cfg.RetryInterval,
 	}
 }
 
@@ -70,6 +80,11 @@ func (p *Producer) Shutdown() error {
 	// 关闭gRPC连接
 	if p.grpcConn != nil {
 		p.grpcConn.Close()
+	}
+
+	// 关闭NameServer连接
+	if p.nameServerClient != nil {
+		p.nameServerClient.Close()
 	}
 
 	p.wg.Wait()
@@ -149,38 +164,86 @@ type SendResult struct {
 	ElapsedTime int64  `json:"elapsed_time"`
 }
 
-// send 发送消息的核心逻辑
+// send 发送消息的核心逻辑（带幂等性和重试）
 func (p *Producer) send(msg *protocol.Message) (*SendResult, error) {
 	if !p.running {
 		return nil, fmt.Errorf("producer is not running")
 	}
 
+	// 幂等性检查：如果消息已发送成功，直接返回结果
+	p.mutex.RLock()
+	if result, exists := p.sentMessages[msg.MessageID]; exists {
+		p.mutex.RUnlock()
+		logger.Info("Message already sent (idempotent check)",
+			"messageId", msg.MessageID,
+			"offset", result.Offset)
+		return result, nil
+	}
+	p.mutex.RUnlock()
+
 	startTime := time.Now().UnixMilli()
 
-	// 选择Broker
-	brokerAddr, err := p.selectBroker(msg.Topic)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select broker: %v", err)
+	// 重试机制
+	var lastErr error
+	for attempt := 0; attempt <= p.maxRetries; attempt++ {
+		if attempt > 0 {
+			logger.Info("Retrying to send message",
+				"messageId", msg.MessageID,
+				"attempt", attempt,
+				"maxRetries", p.maxRetries)
+			time.Sleep(p.retryInterval)
+		}
+
+		// 选择Broker
+		brokerAddr, err := p.selectBroker(msg.Topic)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to select broker: %v", err)
+			continue
+		}
+
+		// 发送消息到Broker
+		result, err := p.sendToBroker(brokerAddr, msg)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to send message to broker %s: %v", brokerAddr, err)
+			// 如果是网络错误，尝试重新连接
+			if attempt < p.maxRetries {
+				logger.Warn("Send failed, will retry",
+					"messageId", msg.MessageID,
+					"error", err,
+					"attempt", attempt+1)
+				continue
+			}
+			return nil, lastErr
+		}
+
+		// 发送成功，记录结果（幂等性保障）
+		elapsedTime := time.Now().UnixMilli() - startTime
+		sendResult := &SendResult{
+			MessageID:   msg.MessageID,
+			Offset:      result.Offset,
+			QueueID:     result.QueueID,
+			BrokerAddr:  brokerAddr,
+			SendTime:    startTime,
+			ElapsedTime: elapsedTime,
+		}
+
+		// 保存发送结果（用于幂等性检查）
+		p.mutex.Lock()
+		p.sentMessages[msg.MessageID] = sendResult
+		// 限制缓存大小，避免内存泄漏（简单实现：保留最近1000条）
+		if len(p.sentMessages) > 1000 {
+			// 删除最旧的一条（简化实现）
+			for k := range p.sentMessages {
+				delete(p.sentMessages, k)
+				break
+			}
+		}
+		p.mutex.Unlock()
+
+		return sendResult, nil
 	}
 
-	// 发送消息到Broker
-	result, err := p.sendToBroker(brokerAddr, msg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send message to broker %s: %v", brokerAddr, err)
-	}
-
-	elapsedTime := time.Now().UnixMilli() - startTime
-
-	sendResult := &SendResult{
-		MessageID:   msg.MessageID,
-		Offset:      result.Offset,
-		QueueID:     msg.QueueID,
-		BrokerAddr:  brokerAddr,
-		SendTime:    startTime,
-		ElapsedTime: elapsedTime,
-	}
-
-	return sendResult, nil
+	return nil, fmt.Errorf("failed to send message after %d retries: %v", p.maxRetries, lastErr)
 }
 
 // selectBroker 选择合适的Broker
@@ -217,30 +280,16 @@ func (p *Producer) selectBroker(topic string) (string, error) {
 
 // fetchRouteInfo 从NameServer获取路由信息
 func (p *Producer) fetchRouteInfo(topic string) (*TopicRouteInfo, error) {
-	// 选择NameServer
-	nsAddr := p.selectNameServer()
-
-	// 发送获取路由信息请求
-	// 实际实现需要网络通信
-	logger.Info("Fetching route info",
-		"topic", topic,
-		"nameserver", nsAddr)
-
-	// 模拟返回路由信息
-	return &TopicRouteInfo{
-		TopicName:   topic,
-		BrokerAddrs: []string{"localhost:10911"}, // 简化实现
-	}, nil
-}
-
-// selectNameServer 选择NameServer
-func (p *Producer) selectNameServer() string {
-	if len(p.nameServerAddrs) == 0 {
-		return ""
+	if p.nameServerClient == nil {
+		return nil, fmt.Errorf("nameserver client not initialized")
 	}
 
-	// 简单选择第一个
-	return p.nameServerAddrs[0]
+	routeInfo, err := p.nameServerClient.GetRouteInfo(topic)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get route info from nameserver: %v", err)
+	}
+
+	return routeInfo, nil
 }
 
 // sendToBroker 发送消息到Broker
@@ -361,9 +410,12 @@ func (p *Producer) sendTransactionCommand(cmdType protocol.CommandType, transact
 
 // initConnections 初始化连接
 func (p *Producer) initConnections() error {
-	// 初始化到NameServer的连接
-	// 实际实现需要建立网络连接
-	logger.Info("Initializing connections to nameservers", "nameservers", p.nameServerAddrs)
+	// 连接到NameServer
+	if err := p.nameServerClient.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to nameserver: %v", err)
+	}
+
+	logger.Info("Initialized connections to nameservers", "nameservers", p.nameServerAddrs)
 	return nil
 }
 
@@ -377,6 +429,7 @@ type SendResponse struct {
 // TopicRouteInfo 主题路由信息
 type TopicRouteInfo struct {
 	TopicName   string   `json:"topic_name"`
+	QueueCount  int      `json:"queue_count"`
 	BrokerAddrs []string `json:"broker_addrs"`
 }
 

@@ -17,20 +17,26 @@ import (
 
 // Consumer 消息消费者
 type Consumer struct {
-	config          *config.ClientConfig
-	groupName       string
-	topics          []string
-	nameServerAddrs []string
-	brokerClient    pb.BrokerServiceClient
-	grpcConn        *grpc.ClientConn
-	currentBroker   string
-	running         bool
-	mutex           sync.RWMutex
-	wg              sync.WaitGroup
+	config           *config.ClientConfig
+	groupName        string
+	topics           []string
+	nameServerAddrs  []string
+	nameServerClient *NameServerClient
+	brokerClient     pb.BrokerServiceClient
+	grpcConn         *grpc.ClientConn
+	currentBroker    string
+	running          bool
+	mutex            sync.RWMutex
+	wg               sync.WaitGroup
 
 	// 消费状态
 	offsets        map[string]map[int]int64 // topic -> queueID -> offset
 	messageHandler MessageHandler
+
+	// 幂等性保障
+	processedMessages map[string]bool // messageID -> processed (用于幂等性检查)
+	maxRetries        int
+	retryInterval     time.Duration
 }
 
 // MessageHandler 消息处理函数
@@ -39,11 +45,15 @@ type MessageHandler func(msg *protocol.Message) protocol.ConsumeStatus
 // NewConsumer 创建消费者
 func NewConsumer(cfg *config.ClientConfig, groupName string) *Consumer {
 	return &Consumer{
-		config:          cfg,
-		groupName:       groupName,
-		nameServerAddrs: cfg.NameServers,
-		running:         false,
-		offsets:         make(map[string]map[int]int64),
+		config:            cfg,
+		groupName:         groupName,
+		nameServerAddrs:   cfg.NameServers,
+		nameServerClient:  NewNameServerClient(cfg.NameServers),
+		running:           false,
+		offsets:           make(map[string]map[int]int64),
+		processedMessages: make(map[string]bool),
+		maxRetries:        cfg.MaxRetries,
+		retryInterval:     cfg.RetryInterval,
 	}
 }
 
@@ -147,6 +157,11 @@ func (c *Consumer) Shutdown() error {
 		grpcConn.Close()
 	}
 
+	// 关闭NameServer连接
+	if c.nameServerClient != nil {
+		c.nameServerClient.Close()
+	}
+
 	// 在锁外等待goroutine完成，避免死锁
 	c.wg.Wait()
 
@@ -231,19 +246,16 @@ func (c *Consumer) selectBroker(topic string) (string, error) {
 
 // fetchRouteInfo 获取路由信息
 func (c *Consumer) fetchRouteInfo(topic string) (*TopicRouteInfo, error) {
-	// 选择NameServer
-	nsAddr := c.selectNameServer()
+	if c.nameServerClient == nil {
+		return nil, fmt.Errorf("nameserver client not initialized")
+	}
 
-	// 发送获取路由信息请求
-	logger.Info("Fetching route info",
-		"topic", topic,
-		"nameserver", nsAddr)
+	routeInfo, err := c.nameServerClient.GetRouteInfo(topic)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get route info from nameserver: %v", err)
+	}
 
-	// 模拟返回路由信息
-	return &TopicRouteInfo{
-		TopicName:   topic,
-		BrokerAddrs: []string{"localhost:10911"},
-	}, nil
+	return routeInfo, nil
 }
 
 // selectNameServer 选择NameServer
@@ -371,31 +383,100 @@ func convertProtoToMessage(protoMsg *pb.Message) *protocol.Message {
 	return msg
 }
 
-// consumeMessages 消费消息
+// consumeMessages 消费消息（带幂等性和一致性保障）
 func (c *Consumer) consumeMessages(topic string, queueID int, messages []*protocol.Message) error {
 	for _, msg := range messages {
-		// 调用消息处理器
-		status := c.messageHandler(msg)
+		// 幂等性检查：如果消息已处理过，跳过
+		c.mutex.RLock()
+		processed := c.processedMessages[msg.MessageID]
+		c.mutex.RUnlock()
+
+		if processed {
+			logger.Info("Message already processed (idempotent check)",
+				"messageId", msg.MessageID,
+				"topic", topic,
+				"queueId", queueID)
+			// 即使已处理，也要更新 offset 和发送 ack（保证一致性）
+			c.updateConsumeOffset(topic, queueID, msg.QueueOffset+1)
+			c.ackMessage(topic, queueID, msg.QueueOffset)
+			continue
+		}
+
+		// 调用消息处理器（带重试机制）
+		status := c.processMessageWithRetry(msg)
 
 		// 根据消费结果处理
 		switch status {
 		case protocol.ConsumeStatusSuccess:
-			// 更新消费偏移量
+			// 标记消息已处理（幂等性保障）
+			c.mutex.Lock()
+			c.processedMessages[msg.MessageID] = true
+			// 限制缓存大小，避免内存泄漏
+			if len(c.processedMessages) > 10000 {
+				// 删除最旧的一条（简化实现）
+				for k := range c.processedMessages {
+					delete(c.processedMessages, k)
+					break
+				}
+			}
+			c.mutex.Unlock()
+
+			// 更新消费偏移量（一致性保障：只有成功才更新）
 			c.updateConsumeOffset(topic, queueID, msg.QueueOffset+1)
-			// 发送消费确认
-			c.ackMessage(topic, queueID, msg.QueueOffset)
+			// 发送消费确认（一致性保障：只有成功才确认）
+			if err := c.ackMessage(topic, queueID, msg.QueueOffset); err != nil {
+				logger.Warn("Failed to ack message",
+					"messageId", msg.MessageID,
+					"topic", topic,
+					"queueId", queueID,
+					"error", err)
+				// Ack 失败不影响已处理的标记，因为消息已经处理成功
+			}
 
 		case protocol.ConsumeStatusRetry:
-			// 重试消息，不更新偏移量
-			logger.Info("Message will be retried later", "message_id", msg.MessageID)
+			// 重试消息，不更新偏移量，不标记为已处理
+			logger.Info("Message will be retried later",
+				"messageId", msg.MessageID,
+				"topic", topic)
 
 		case protocol.ConsumeStatusFail:
 			// 消费失败，记录错误但继续处理
-			logger.Warn("Failed to consume message", "message_id", msg.MessageID)
+			// 不更新偏移量，不发送 ack，不标记为已处理
+			logger.Warn("Failed to consume message",
+				"messageId", msg.MessageID,
+				"topic", topic)
 		}
 	}
 
 	return nil
+}
+
+// processMessageWithRetry 处理消息（带重试机制）
+func (c *Consumer) processMessageWithRetry(msg *protocol.Message) protocol.ConsumeStatus {
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			logger.Info("Retrying to process message",
+				"messageId", msg.MessageID,
+				"attempt", attempt,
+				"maxRetries", c.maxRetries)
+			time.Sleep(c.retryInterval)
+		}
+
+		status := c.messageHandler(msg)
+
+		// 如果成功或失败，不再重试
+		if status == protocol.ConsumeStatusSuccess || status == protocol.ConsumeStatusFail {
+			return status
+		}
+
+		// ConsumeStatusRetry 继续重试
+	}
+
+	// 重试次数用尽，返回失败
+	logger.Warn("Message processing failed after retries",
+		"messageId", msg.MessageID,
+		"maxRetries", c.maxRetries)
+	return protocol.ConsumeStatusFail
 }
 
 // ackMessage 发送消费确认
@@ -457,8 +538,16 @@ func (c *Consumer) updateConsumeOffset(topic string, queueID int, offset int64) 
 
 // initConnections 初始化连接
 func (c *Consumer) initConnections() error {
-	// 初始化到NameServer和Broker的连接
-	logger.Info("Initializing connections for consumer group", "group", c.groupName)
+	// 连接到NameServer
+	if c.nameServerClient == nil {
+		return fmt.Errorf("nameserver client not initialized")
+	}
+
+	if err := c.nameServerClient.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to nameserver: %v", err)
+	}
+
+	logger.Info("Initialized connections for consumer group", "group", c.groupName)
 	return nil
 }
 

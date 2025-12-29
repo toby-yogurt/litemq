@@ -112,7 +112,7 @@ func (hm *HeartbeatManager) checkHeartbeats() {
 			// 心跳超时
 			info.Status = "timeout"
 			timeoutBrokers = append(timeoutBrokers, brokerID)
-			logger.Warn("Broker heartbeat timeout",
+			logger.Info("Broker heartbeat timeout",
 				"broker_id", brokerID,
 				"last_heartbeat", info.LastHeartbeat,
 				"now", now)
