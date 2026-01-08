@@ -32,6 +32,10 @@ LiteMQ 是一个用Go语言实现的轻量级、高性能的企业级分布式�
 - ✅ **死信队列** - 处理消费失败的消息
 - ✅ **消息重试** - 智能重试机制
 - ✅ **消息过滤** - 基于标签和属性的过滤
+- ✅ **消息索引** - 支持按Key或时间范围查询消息
+- ✅ **检查点机制** - 确保数据一致性和快速恢复
+- ✅ **异常检测** - 自动检测异常关闭并执行恢复
+- ✅ **流控管理** - 可配置的生产和消费限流
 
 ### 运维监控
 - ✅ **REST API** - 基于Gin框架的完整API
@@ -92,11 +96,15 @@ LiteMQ 是一个用Go语言实现的轻量级、高性能的企业级分布式�
 │                                                          │ │
 │  存储引擎: CommitLog + ConsumeQueue                      │ │
 │  复制模式: 异步复制 / 同步复制                           │ │
+│  索引系统: IndexFile (按Key/时间查询)                    │ │
+│  一致性: CheckPoint + AbortFile                          │ │
 └──────────────────────────────────────────────────────────┘ │
                                                             │
           ┌─────────────────────────────────────────────────┼─┐
           │ 存储层: 内存映射文件 + 顺序写入                   │ │
-          │ 索引层: ConsumeQueue + 时间轮                     │ │
+          │ 索引层: ConsumeQueue + IndexFile + 时间轮         │ │
+          │ 一致性: CheckPoint (刷新偏移量 + 消费进度)        │ │
+          │ 异常检测: AbortFile (异常关闭标记)                │ │
           │ 网络层: gRPC + HTTP                              │ │
           └───────────────────────────────────────────────────┘
 ```
@@ -517,8 +525,17 @@ litemq/
 │   │   └── config/        # 配置管理
 │   ├── protocol/          # 协议定义
 │   ├── storage/           # 存储引擎
+│   │   ├── commitlog.go   # CommitLog主存储
+│   │   ├── consumequeue.go # ConsumeQueue索引
+│   │   ├── indexfile.go   # IndexFile消息索引 ⭐
+│   │   ├── checkpoint.go  # CheckPoint检查点 ⭐
+│   │   ├── abort.go       # AbortFile异常标记 ⭐
+│   │   ├── mappedfile.go  # 内存映射文件
+│   │   └── flush.go       # 刷新服务
 │   ├── nameserver/        # NameServer实现
 │   ├── broker/            # Broker实现
+│   │   ├── flow_control.go # 流控管理器 ⭐
+│   │   └── ...
 │   ├── client/            # 客户端SDK
 │   └── monitoring/        # 监控系统
 ├── api/                   # REST API (基于Gin框架)
@@ -546,6 +563,173 @@ litemq/
 - [技术栈文档](docs/tech-stack.md) - 项目使用的所有技术栈和依赖库说明
 - [Web 界面使用指南](docs/web-ui-guide.md) - Web 管理界面的启动和使用说明
 
+## 🗄️ 存储架构详解 ⭐ 新增
+
+### 存储组件
+
+LiteMQ 的存储层包含以下核心组件：
+
+#### 1. CommitLog（消息主存储）
+- **功能**：所有消息的顺序写入存储
+- **特点**：顺序写、高性能、持久化
+- **文件大小**：默认1GB，可配置
+- **文件格式**：固定大小的文件，循环使用
+
+#### 2. ConsumeQueue（消费队列索引）
+- **功能**：为每个Topic的每个Queue维护索引，加速消息查询
+- **特点**：按Topic和QueueID组织，支持快速定位消息
+- **索引项大小**：24字节（CommitLog偏移量 + 消息大小 + Tag哈希 + 时间戳）
+
+#### 3. IndexFile（消息索引文件）⭐ 新增
+- **功能**：支持按Key或时间范围查询消息
+- **特点**：
+  - Hash索引结构（500万槽位 + 2000万索引条目）
+  - 支持按消息Key快速查询（如订单号、用户ID）
+  - 支持按时间范围查询（用于消息审计和问题排查）
+- **使用场景**：
+  - 订单号查询订单消息
+  - 用户ID查询用户消息
+  - 查询某个时间段的消息
+  - 消息审计和问题排查
+
+#### 4. CheckPoint（检查点）⭐ 新增
+- **功能**：记录关键状态信息，确保数据一致性和快速恢复
+- **记录内容**：
+  - CommitLog 已刷新偏移量
+  - ConsumeQueue 已刷新偏移量（按Topic和QueueID）
+  - 消费者消费偏移量（按ConsumerGroup、Topic和QueueID）
+- **特点**：
+  - 持久化到磁盘
+  - 支持启动时快速恢复
+  - 定期刷新，保证数据一致性
+
+#### 5. AbortFile（异常标记文件）⭐ 新增
+- **功能**：标记系统是否正常关闭
+- **工作原理**：
+  - 系统启动时创建 abort 文件，标记系统正在运行
+  - 系统正常关闭时删除 abort 文件
+  - 系统异常关闭时 abort 文件保留
+  - 下次启动时检测到 abort 文件，执行恢复逻辑
+- **使用场景**：
+  - 检测异常关闭
+  - 触发数据恢复流程
+  - 保证数据一致性
+
+### 存储目录结构
+
+```
+litemq-store/
+├── commitlog/                  # 消息主存储
+│   ├── 00000000000000000000   # 第1个文件(1GB)
+│   ├── 00000000001073741824   # 第2个文件(1GB)
+│   └── 00000000002147483648   # 第3个文件(1GB)
+│
+├── consumequeue/               # 消费队列索引
+│   ├── topic-order/
+│   │   ├── 0/                 # 队列0
+│   │   ├── 1/                 # 队列1
+│   │   └── 2/                 # 队列2
+│   └── topic-payment/
+│
+├── index/                      # 消息索引 ⭐ 新增
+│   ├── 20241216000000         # 按时间戳命名的索引文件
+│   └── 20241217000000
+│
+├── checkpoint/                 # 检查点 ⭐ 新增
+│   └── checkpoint             # 检查点文件
+│
+└── abort/                      # 异常标记 ⭐ 新增
+    └── abort                   # 异常标记文件
+```
+
+## 🚦 流控管理 ⭐ 新增
+
+LiteMQ 提供了完整的流控（流量控制）功能，支持生产和消费两个维度的限流，防止系统过载。
+
+### 流控功能
+
+#### 生产限流
+- **Producer TPS 限制**：限制单个Producer的最大TPS（每秒消息数）
+- **Producer 字节限制**：限制单个Producer的最大流量（字节/秒）
+- **Queue 消息数限制**：限制单个Queue的最大堆积消息数
+
+#### 消费限流
+- **拉取频率限制**：限制Consumer的最小拉取间隔
+- **批量大小限制**：限制单次拉取的最大消息数
+- **并发线程限制**：限制单个Consumer的最大并发处理线程数
+
+### 流控工作原理
+
+1. **生产限流**：
+   - 在消息存储前检查Producer的TPS和字节限制
+   - 检查Queue的消息堆积数量
+   - 超过限制时返回流控错误
+
+2. **消费限流**：
+   - 在拉取消息前检查拉取频率
+   - 检查Consumer的并发线程数
+   - 限制单次拉取的批量大小
+
+3. **动态调整**：
+   - 流控参数可通过配置文件动态调整
+   - 支持运行时更新（需要重启Broker）
+
+## 🔍 消息查询功能 ⭐ 新增
+
+LiteMQ 支持通过 IndexFile 进行消息查询，方便进行消息审计和问题排查。
+
+### 查询方式
+
+#### 1. 按Key查询
+根据消息的Key（如订单号、用户ID）快速定位消息：
+
+```go
+// 通过Broker获取IndexFile
+indexFile := broker.GetIndexFile()
+
+// 按Key查询索引
+entries, err := indexFile.GetIndexByKey("order-12345")
+if err != nil {
+    log.Fatal(err)
+}
+
+// 根据索引条目从CommitLog读取消息
+for _, entry := range entries {
+    msg, err := commitLog.ReadMessage(entry.PhyOffset)
+    // 处理消息...
+}
+```
+
+#### 2. 按时间范围查询
+查询某个时间段内的所有消息：
+
+```go
+// 查询2024-12-16 00:00:00 到 2024-12-17 00:00:00 的消息
+startTime := time.Date(2024, 12, 16, 0, 0, 0, 0, time.UTC).Unix()
+endTime := time.Date(2024, 12, 17, 0, 0, 0, 0, time.UTC).Unix()
+
+entries, err := indexFile.GetIndexByTimeRange(startTime, endTime)
+if err != nil {
+    log.Fatal(err)
+}
+
+// 处理查询结果...
+```
+
+### 索引结构
+
+IndexFile 使用Hash索引结构：
+- **Hash槽位**：500万个槽位，每个槽位4字节
+- **索引条目**：2000万个索引条目，每个条目20字节
+- **索引内容**：KeyHash + 物理偏移量 + 时间差 + 下一个条目指针
+
+### 使用场景
+
+- **订单查询**：根据订单号查询订单相关的所有消息
+- **用户查询**：根据用户ID查询用户相关的消息
+- **审计日志**：查询某个时间段的所有消息，进行审计
+- **问题排查**：根据消息Key或时间范围定位问题消息
+
 ### 延时消息技术细节
 
 #### 时间轮实现
@@ -567,7 +751,7 @@ LiteMQ 的多层时间轮实现位于 `pkg/broker/timewheel.go`，核心特性�
 1. **消息管理**：缓存延时消息的元数据信息
 2. **时间轮集成**：将延时消息添加到多层时间轮进行调度
 3. **到期处理**：当消息到期时，从 CommitLog 读取消息并构建索引
-4. **故障恢复**：支持启动时恢复未到期的延时消息（待实现）
+4. **故障恢复**：支持启动时恢复未到期的延时消息（`RecoverDelayMessages`）
 
 #### 配置参数
 
@@ -619,6 +803,18 @@ file_size = 1073741824  # 1GB
 [replication]
 role = "master"
 mode = "async"
+
+# 流控配置 ⭐ 新增
+[flow_control]
+# 生产限流
+producer_tps_limit = 10000        # 单Producer最大TPS，0表示不限制
+producer_bytes_limit = 104857600  # 单Producer最大流量（字节/秒），100MB/s，0表示不限制
+queue_max_messages = 10000000     # 单Queue最大堆积消息数，1000万，0表示不限制
+
+# 消费限流
+pull_min_interval = "100ms"       # 拉取最小间隔，0表示不限制
+pull_max_batch_size = 32          # 拉取最大批量大小，0表示不限制
+consumer_max_threads = 64         # 单Consumer最大并发线程数，0表示不限制
 ```
 
 ## 🧪 测试
@@ -654,6 +850,17 @@ LiteMQ提供了完整的监控和告警功能：
 - **Web监控面板**: `http://localhost:8080`
 - **Prometheus指标**: `http://localhost:9090/metrics`
 - **健康检查**: `http://localhost:8080/health`
+
+### 监控指标
+
+LiteMQ 收集以下关键指标：
+
+- **消息统计**：总消息数、总字节数、写入偏移量、刷新偏移量
+- **队列统计**：各Topic和Queue的消息堆积情况
+- **消费者统计**：消费组数量、消费进度、消费延迟
+- **流控统计**：Producer TPS、Consumer拉取频率、队列堆积数 ⭐ 新增
+- **存储统计**：CommitLog文件数、ConsumeQueue索引数、IndexFile索引数 ⭐ 新增
+- **系统统计**：CPU使用率、内存使用率、磁盘IO
 
 ## 🚀 部署
 
@@ -692,6 +899,17 @@ kubectl apply -f deployments/k8s/
 ## 📄 许可证
 
 本项目采用 Apache 2.0 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 🆕 最新更新
+
+### v1.0.0 新增功能
+
+- ✅ **消息索引（IndexFile）** - 支持按Key或时间范围查询消息
+- ✅ **检查点（CheckPoint）** - 确保数据一致性和快速恢复
+- ✅ **异常标记（AbortFile）** - 自动检测异常关闭并执行恢复
+- ✅ **流控管理（FlowControl）** - 可配置的生产和消费限流
+- ✅ **延时消息恢复** - 支持启动时恢复未到期的延时消息
+- ✅ **数据一致性保障** - 完整的检查点和异常检测机制
 
 ## 🙏 致谢
 
