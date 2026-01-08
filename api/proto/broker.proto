@@ -27,6 +27,15 @@ service BrokerService {
 
   // 心跳
   rpc Heartbeat (HeartbeatRequest) returns (HeartbeatResponse);
+
+  // 提交事务
+  rpc CommitTransaction (CommitTransactionRequest) returns (CommitTransactionResponse);
+
+  // 回滚事务
+  rpc RollbackTransaction (RollbackTransactionRequest) returns (RollbackTransactionResponse);
+
+  // 查询事务状态
+  rpc CheckTransactionStatus (CheckTransactionStatusRequest) returns (CheckTransactionStatusResponse);
 }
 
 // 发送消息请求
@@ -39,7 +48,8 @@ message SendMessageResponse {
   string message_id = 1;
   int64 offset = 2;
   int32 queue_id = 3;
-  string error = 4;
+  string transaction_id = 4; // 事务消息的事务ID
+  string error = 5;
 }
 
 // 批量发送消息请求
@@ -62,6 +72,7 @@ message PullMessageRequest {
   int32 queue_id = 3;
   int64 offset = 4;
   int32 max_count = 5;
+  string consumer_id = 6; // 消费者ID（用于顺序消息的队列锁定）
 }
 
 // 拉取消息响应
@@ -106,5 +117,38 @@ message HeartbeatRequest {
 // 心跳响应
 message HeartbeatResponse {
   bool success = 1;
+  string error = 2;
+}
+
+// 提交事务请求
+message CommitTransactionRequest {
+  string transaction_id = 1;
+}
+
+// 提交事务响应
+message CommitTransactionResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// 回滚事务请求
+message RollbackTransactionRequest {
+  string transaction_id = 1;
+}
+
+// 回滚事务响应
+message RollbackTransactionResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// 查询事务状态请求
+message CheckTransactionStatusRequest {
+  string transaction_id = 1;
+}
+
+// 查询事务状态响应
+message CheckTransactionStatusResponse {
+  int32 status = 1; // 0: Unknown, 1: Prepared, 2: Committed, 3: Rollbacked
   string error = 2;
 }

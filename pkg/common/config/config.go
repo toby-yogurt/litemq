@@ -107,6 +107,19 @@ type BrokerConfig struct {
 	// 消费者配置
 	MaxConsumerConnections int `toml:"max_consumer_connections"` // 最大消费者连接数
 
+	// 流控配置
+	FlowControl struct {
+		// 生产限流
+		ProducerTPSLimit   int64 `toml:"producer_tps_limit"`   // 单Producer最大TPS，0表示不限制
+		ProducerBytesLimit int64 `toml:"producer_bytes_limit"` // 单Producer最大流量（字节/秒），0表示不限制
+		QueueMaxMessages   int64 `toml:"queue_max_messages"`   // 单Queue最大堆积消息数，0表示不限制
+
+		// 消费限流
+		PullMinInterval    time.Duration `toml:"pull_min_interval"`    // 拉取最小间隔，0表示不限制
+		PullMaxBatchSize   int           `toml:"pull_max_batch_size"`  // 拉取最大批量大小，0表示不限制
+		ConsumerMaxThreads int           `toml:"consumer_max_threads"` // 单Consumer最大并发线程数，0表示不限制
+	} `toml:"flow_control"`
+
 	// 监控配置
 	MetricsEnabled bool   `toml:"metrics_enabled"`
 	MetricsPort    int    `toml:"metrics_port"`
@@ -189,9 +202,24 @@ func DefaultBrokerConfig() *BrokerConfig {
 			Interval: 30 * time.Second,
 		},
 		MaxConsumerConnections: 1000,
-		MetricsEnabled:         true,
-		MetricsPort:            8080,
-		MetricsPath:            "/metrics",
+		FlowControl: struct {
+			ProducerTPSLimit   int64         `toml:"producer_tps_limit"`
+			ProducerBytesLimit int64         `toml:"producer_bytes_limit"`
+			QueueMaxMessages   int64         `toml:"queue_max_messages"`
+			PullMinInterval    time.Duration `toml:"pull_min_interval"`
+			PullMaxBatchSize   int           `toml:"pull_max_batch_size"`
+			ConsumerMaxThreads int           `toml:"consumer_max_threads"`
+		}{
+			ProducerTPSLimit:   10000,                  // 单Producer最大10000 TPS
+			ProducerBytesLimit: 100 * 1024 * 1024,      // 单Producer最大100MB/s
+			QueueMaxMessages:   10000000,               // 单Queue最大堆积1000万
+			PullMinInterval:    100 * time.Millisecond, // 拉取最小间隔100ms
+			PullMaxBatchSize:   32,                     // 拉取最大批量大小32条
+			ConsumerMaxThreads: 64,                     // 单Consumer最大64线程
+		},
+		MetricsEnabled: true,
+		MetricsPort:    8080,
+		MetricsPath:    "/metrics",
 		Log: LogConfig{
 			Level:      "info",
 			Format:     "text",

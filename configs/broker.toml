@@ -45,6 +45,18 @@ interval = "30s"
 # 消费者配置
 max_consumer_connections = 1000
 
+# 流控配置
+[flow_control]
+# 生产限流
+producer_tps_limit = 10000        # 单Producer最大TPS，0表示不限制
+producer_bytes_limit = 104857600 # 单Producer最大流量（字节/秒），100MB/s，0表示不限制
+queue_max_messages = 10000000    # 单Queue最大堆积消息数，1000万，0表示不限制
+
+# 消费限流
+pull_min_interval = "100ms"      # 拉取最小间隔，0表示不限制
+pull_max_batch_size = 32         # 拉取最大批量大小，0表示不限制
+consumer_max_threads = 64        # 单Consumer最大并发线程数，0表示不限制
+
 # 监控配置
 [metrics]
 enabled = true

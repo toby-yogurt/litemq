@@ -36,11 +36,18 @@ func (s *BrokerGRPCService) SendMessage(ctx context.Context, req *pb.SendMessage
 		return nil, status.Errorf(codes.Internal, "failed to send message: %v", err)
 	}
 
-	return &pb.SendMessageResponse{
+	response := &pb.SendMessageResponse{
 		MessageId: msg.MessageID,
 		Offset:    offset,
 		QueueId:   int32(msg.QueueID),
-	}, nil
+	}
+
+	// 如果是事务消息，返回事务ID
+	if msg.MessageType == protocol.MessageTypeTransaction {
+		response.TransactionId = msg.TransactionID
+	}
+
+	return response, nil
 }
 
 // SendMessages 批量发送消息
@@ -75,12 +82,18 @@ func (s *BrokerGRPCService) SendMessages(ctx context.Context, req *pb.SendMessag
 // PullMessage 拉取消息
 func (s *BrokerGRPCService) PullMessage(ctx context.Context, req *pb.PullMessageRequest) (*pb.PullMessageResponse, error) {
 	// 使用直接的拉取消息方法
+	// consumerID 从请求中获取，如果没有则使用 groupName 作为默认值
+	consumerID := req.ConsumerId
+	if consumerID == "" {
+		consumerID = req.GroupName
+	}
 	messages, err := s.broker.GetConsumerManager().PullMessages(
 		req.GroupName,
 		req.Topic,
 		int(req.QueueId),
 		req.Offset,
 		int(req.MaxCount),
+		consumerID,
 	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to pull messages: %v", err)
@@ -143,6 +156,54 @@ func (s *BrokerGRPCService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequ
 
 	return &pb.HeartbeatResponse{
 		Success: true,
+	}, nil
+}
+
+// CommitTransaction 提交事务
+func (s *BrokerGRPCService) CommitTransaction(ctx context.Context, req *pb.CommitTransactionRequest) (*pb.CommitTransactionResponse, error) {
+	if s.broker.GetTransactionManager() == nil {
+		return nil, status.Errorf(codes.Internal, "transaction manager not initialized")
+	}
+
+	err := s.broker.GetTransactionManager().CommitTransaction(req.GetTransactionId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+	}
+
+	return &pb.CommitTransactionResponse{
+		Success: true,
+	}, nil
+}
+
+// RollbackTransaction 回滚事务
+func (s *BrokerGRPCService) RollbackTransaction(ctx context.Context, req *pb.RollbackTransactionRequest) (*pb.RollbackTransactionResponse, error) {
+	if s.broker.GetTransactionManager() == nil {
+		return nil, status.Errorf(codes.Internal, "transaction manager not initialized")
+	}
+
+	err := s.broker.GetTransactionManager().RollbackTransaction(req.GetTransactionId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to rollback transaction: %v", err)
+	}
+
+	return &pb.RollbackTransactionResponse{
+		Success: true,
+	}, nil
+}
+
+// CheckTransactionStatus 查询事务状态
+func (s *BrokerGRPCService) CheckTransactionStatus(ctx context.Context, req *pb.CheckTransactionStatusRequest) (*pb.CheckTransactionStatusResponse, error) {
+	if s.broker.GetTransactionManager() == nil {
+		return nil, status.Errorf(codes.Internal, "transaction manager not initialized")
+	}
+
+	txStatus, err := s.broker.GetTransactionManager().CheckTransactionStatus(req.GetTransactionId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to check transaction status: %v", err)
+	}
+
+	return &pb.CheckTransactionStatusResponse{
+		Status: int32(txStatus),
 	}, nil
 }
 

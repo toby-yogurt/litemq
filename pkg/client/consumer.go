@@ -487,12 +487,29 @@ func (c *Consumer) ackMessage(topic string, queueID int, offset int64) error {
 		return fmt.Errorf("failed to select broker for ack: %v", err)
 	}
 
-	// 发送消费确认命令
-	cmd := protocol.NewCommand(protocol.CommandConsumeAck)
-	cmd.SetHeader("group", c.groupName)
-	cmd.SetHeader("topic", topic)
-	cmd.SetHeader("queue_id", fmt.Sprintf("%d", queueID))
-	cmd.SetHeader("offset", fmt.Sprintf("%d", offset))
+	// 检查连接状态
+	c.mutex.RLock()
+	needConnect := c.currentBroker != brokerAddr || c.grpcConn == nil
+	client := c.brokerClient
+	c.mutex.RUnlock()
+
+	// 如果需要连接，建立连接
+	if needConnect {
+		c.mutex.Lock()
+		// 双重检查
+		if c.currentBroker != brokerAddr || c.grpcConn == nil {
+			if err := c.connectToBroker(brokerAddr); err != nil {
+				c.mutex.Unlock()
+				return fmt.Errorf("failed to connect to broker for ack: %v", err)
+			}
+		}
+		client = c.brokerClient
+		c.mutex.Unlock()
+	}
+
+	// 发送消费确认请求
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	logger.Info("Sending ack",
 		"broker", brokerAddr,
@@ -500,7 +517,32 @@ func (c *Consumer) ackMessage(topic string, queueID int, offset int64) error {
 		"queue", queueID,
 		"offset", offset)
 
-	// 发送到Broker
+	resp, err := client.AckMessage(ctx, &pb.AckMessageRequest{
+		GroupName: c.groupName,
+		Topic:     topic,
+		QueueId:   int32(queueID),
+		Offset:    offset,
+	})
+	if err != nil {
+		logger.Warn("Failed to send ack to broker",
+			"broker", brokerAddr,
+			"topic", topic,
+			"queueId", queueID,
+			"offset", offset,
+			"error", err)
+		return fmt.Errorf("failed to send ack: %v", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("ack failed: %s", resp.Error)
+	}
+
+	logger.Debug("Ack sent successfully",
+		"broker", brokerAddr,
+		"topic", topic,
+		"queueId", queueID,
+		"offset", offset)
+
 	return nil
 }
 

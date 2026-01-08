@@ -41,6 +41,7 @@ enum MessageType {
   TRANSACTION = 2;
   BROADCAST = 3;
   ORDER = 4;
+  CRON = 5;  // 定时消息（Cron）
 }
 
 // 消息状态枚举

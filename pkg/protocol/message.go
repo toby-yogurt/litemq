@@ -16,6 +16,7 @@ const (
 	MessageTypeTransaction MessageType = 2 // 事务消息
 	MessageTypeBroadcast   MessageType = 3 // 广播消息
 	MessageTypeOrder       MessageType = 4 // 顺序消息
+	MessageTypeCron        MessageType = 5 // 定时消息（Cron）
 )
 
 // MessageStatus 消息状态
@@ -135,6 +136,14 @@ func NewOrderMessage(topic string, body []byte, shardingKey string) *Message {
 	msg := NewMessage(topic, body)
 	msg.MessageType = MessageTypeOrder
 	msg.ShardingKey = shardingKey
+	return msg
+}
+
+// NewCronMessage 创建定时消息
+func NewCronMessage(topic string, body []byte, cronExpression string) *Message {
+	msg := NewMessage(topic, body)
+	msg.MessageType = MessageTypeCron
+	msg.SetProperty("cron_expression", cronExpression)
 	return msg
 }
 

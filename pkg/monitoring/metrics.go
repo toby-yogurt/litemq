@@ -39,6 +39,9 @@ type MetricsCollector struct {
 
 	// 用于非Prometheus指标的互斥锁
 	mutex sync.RWMutex
+
+	// 用于跟踪消息总数的上次值（用于计算增量）
+	lastTotalMessages int64
 }
 
 // 全局变量，用于单例模式
@@ -320,8 +323,18 @@ func (mc *MetricsCollector) UpdateMetrics(stats map[string]interface{}) {
 	if val, ok := stats["brokers"].(int); ok {
 		mc.UpdateBrokersCount(val)
 	}
-	if _, ok := stats["total_messages"].(int64); ok {
-		// Update message counters based on stored values
-		// TODO: Implement message counter updates
+	if val, ok := stats["total_messages"].(int64); ok {
+		// 更新消息计数器（基于存储的总消息数）
+		mc.mutex.Lock()
+		// 计算增量
+		if val > mc.lastTotalMessages {
+			delta := val - mc.lastTotalMessages
+			// 将增量添加到接收消息计数器（因为这些都是已存储的消息）
+			for i := int64(0); i < delta; i++ {
+				mc.messagesReceived.Inc()
+			}
+			mc.lastTotalMessages = val
+		}
+		mc.mutex.Unlock()
 	}
 }

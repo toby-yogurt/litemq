@@ -24,6 +24,7 @@ type FlushService struct {
 	interval     time.Duration
 	commitLog    *CommitLog
 	consumeQueue *ConsumeQueueManager
+	checkPoint   *CheckPoint // 检查点管理器
 
 	// 异步刷新相关
 	running int32
@@ -54,6 +55,7 @@ func NewFlushService(name string, mode FlushMode, interval time.Duration,
 		interval:      interval,
 		commitLog:     commitLog,
 		consumeQueue:  consumeQueue,
+		checkPoint:    nil, // 将在 SetCheckPoint 中设置
 		running:       0,
 		stopCh:        make(chan struct{}),
 		flushCh:       make(chan FlushRequest, 1000), // 缓冲区大小
@@ -62,6 +64,13 @@ func NewFlushService(name string, mode FlushMode, interval time.Duration,
 	}
 
 	return fs
+}
+
+// SetCheckPoint 设置检查点管理器
+func (fs *FlushService) SetCheckPoint(cp *CheckPoint) {
+	fs.mutex.Lock()
+	defer fs.mutex.Unlock()
+	fs.checkPoint = cp
 }
 
 // Start 启动刷新服务
@@ -172,12 +181,33 @@ func (fs *FlushService) flush(force bool) error {
 		if err := fs.commitLog.Flush(); err != nil {
 			return fmt.Errorf("failed to flush commit log: %v", err)
 		}
+
+		// 更新检查点的 CommitLog 刷新偏移量
+		if fs.checkPoint != nil {
+			flushedOffset := fs.commitLog.GetFlushedOffset()
+			if err := fs.checkPoint.UpdateCommitLogFlushedOffset(flushedOffset); err != nil {
+				logger.Warn("Failed to update checkpoint commit log offset", "error", err)
+			}
+		}
 	}
 
 	// 刷新ConsumeQueue
 	if fs.consumeQueue != nil {
 		if err := fs.consumeQueue.Flush(); err != nil {
 			return fmt.Errorf("failed to flush consume queue: %v", err)
+		}
+
+		// 更新检查点的 ConsumeQueue 刷新偏移量
+		if fs.checkPoint != nil {
+			// 获取所有 ConsumeQueue 的刷新偏移量并更新到检查点
+			// 这里简化实现，实际应该遍历所有 topic 和 queue
+		}
+	}
+
+	// 刷新检查点
+	if fs.checkPoint != nil && force {
+		if err := fs.checkPoint.Flush(); err != nil {
+			logger.Warn("Failed to flush checkpoint", "error", err)
 		}
 	}
 

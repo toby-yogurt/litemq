@@ -21,12 +21,15 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	BrokerService_SendMessage_FullMethodName      = "/litemq.broker.BrokerService/SendMessage"
-	BrokerService_SendMessages_FullMethodName     = "/litemq.broker.BrokerService/SendMessages"
-	BrokerService_PullMessage_FullMethodName      = "/litemq.broker.BrokerService/PullMessage"
-	BrokerService_AckMessage_FullMethodName       = "/litemq.broker.BrokerService/AckMessage"
-	BrokerService_RegisterConsumer_FullMethodName = "/litemq.broker.BrokerService/RegisterConsumer"
-	BrokerService_Heartbeat_FullMethodName        = "/litemq.broker.BrokerService/Heartbeat"
+	BrokerService_SendMessage_FullMethodName            = "/litemq.broker.BrokerService/SendMessage"
+	BrokerService_SendMessages_FullMethodName           = "/litemq.broker.BrokerService/SendMessages"
+	BrokerService_PullMessage_FullMethodName            = "/litemq.broker.BrokerService/PullMessage"
+	BrokerService_AckMessage_FullMethodName             = "/litemq.broker.BrokerService/AckMessage"
+	BrokerService_RegisterConsumer_FullMethodName       = "/litemq.broker.BrokerService/RegisterConsumer"
+	BrokerService_Heartbeat_FullMethodName              = "/litemq.broker.BrokerService/Heartbeat"
+	BrokerService_CommitTransaction_FullMethodName      = "/litemq.broker.BrokerService/CommitTransaction"
+	BrokerService_RollbackTransaction_FullMethodName    = "/litemq.broker.BrokerService/RollbackTransaction"
+	BrokerService_CheckTransactionStatus_FullMethodName = "/litemq.broker.BrokerService/CheckTransactionStatus"
 )
 
 // BrokerServiceClient is the client API for BrokerService service.
@@ -45,6 +48,12 @@ type BrokerServiceClient interface {
 	RegisterConsumer(ctx context.Context, in *RegisterConsumerRequest, opts ...grpc.CallOption) (*RegisterConsumerResponse, error)
 	// 心跳
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
+	// 提交事务
+	CommitTransaction(ctx context.Context, in *CommitTransactionRequest, opts ...grpc.CallOption) (*CommitTransactionResponse, error)
+	// 回滚事务
+	RollbackTransaction(ctx context.Context, in *RollbackTransactionRequest, opts ...grpc.CallOption) (*RollbackTransactionResponse, error)
+	// 查询事务状态
+	CheckTransactionStatus(ctx context.Context, in *CheckTransactionStatusRequest, opts ...grpc.CallOption) (*CheckTransactionStatusResponse, error)
 }
 
 type brokerServiceClient struct {
@@ -109,6 +118,33 @@ func (c *brokerServiceClient) Heartbeat(ctx context.Context, in *HeartbeatReques
 	return out, nil
 }
 
+func (c *brokerServiceClient) CommitTransaction(ctx context.Context, in *CommitTransactionRequest, opts ...grpc.CallOption) (*CommitTransactionResponse, error) {
+	out := new(CommitTransactionResponse)
+	err := c.cc.Invoke(ctx, BrokerService_CommitTransaction_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *brokerServiceClient) RollbackTransaction(ctx context.Context, in *RollbackTransactionRequest, opts ...grpc.CallOption) (*RollbackTransactionResponse, error) {
+	out := new(RollbackTransactionResponse)
+	err := c.cc.Invoke(ctx, BrokerService_RollbackTransaction_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *brokerServiceClient) CheckTransactionStatus(ctx context.Context, in *CheckTransactionStatusRequest, opts ...grpc.CallOption) (*CheckTransactionStatusResponse, error) {
+	out := new(CheckTransactionStatusResponse)
+	err := c.cc.Invoke(ctx, BrokerService_CheckTransactionStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BrokerServiceServer is the server API for BrokerService service.
 // All implementations must embed UnimplementedBrokerServiceServer
 // for forward compatibility
@@ -125,6 +161,12 @@ type BrokerServiceServer interface {
 	RegisterConsumer(context.Context, *RegisterConsumerRequest) (*RegisterConsumerResponse, error)
 	// 心跳
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
+	// 提交事务
+	CommitTransaction(context.Context, *CommitTransactionRequest) (*CommitTransactionResponse, error)
+	// 回滚事务
+	RollbackTransaction(context.Context, *RollbackTransactionRequest) (*RollbackTransactionResponse, error)
+	// 查询事务状态
+	CheckTransactionStatus(context.Context, *CheckTransactionStatusRequest) (*CheckTransactionStatusResponse, error)
 	mustEmbedUnimplementedBrokerServiceServer()
 }
 
@@ -149,6 +191,15 @@ func (UnimplementedBrokerServiceServer) RegisterConsumer(context.Context, *Regis
 }
 func (UnimplementedBrokerServiceServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
+}
+func (UnimplementedBrokerServiceServer) CommitTransaction(context.Context, *CommitTransactionRequest) (*CommitTransactionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CommitTransaction not implemented")
+}
+func (UnimplementedBrokerServiceServer) RollbackTransaction(context.Context, *RollbackTransactionRequest) (*RollbackTransactionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RollbackTransaction not implemented")
+}
+func (UnimplementedBrokerServiceServer) CheckTransactionStatus(context.Context, *CheckTransactionStatusRequest) (*CheckTransactionStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckTransactionStatus not implemented")
 }
 func (UnimplementedBrokerServiceServer) mustEmbedUnimplementedBrokerServiceServer() {}
 
@@ -271,6 +322,60 @@ func _BrokerService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BrokerService_CommitTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommitTransactionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BrokerServiceServer).CommitTransaction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BrokerService_CommitTransaction_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BrokerServiceServer).CommitTransaction(ctx, req.(*CommitTransactionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BrokerService_RollbackTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RollbackTransactionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BrokerServiceServer).RollbackTransaction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BrokerService_RollbackTransaction_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BrokerServiceServer).RollbackTransaction(ctx, req.(*RollbackTransactionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BrokerService_CheckTransactionStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckTransactionStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BrokerServiceServer).CheckTransactionStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BrokerService_CheckTransactionStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BrokerServiceServer).CheckTransactionStatus(ctx, req.(*CheckTransactionStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BrokerService_ServiceDesc is the grpc.ServiceDesc for BrokerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -301,6 +406,18 @@ var BrokerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Heartbeat",
 			Handler:    _BrokerService_Heartbeat_Handler,
+		},
+		{
+			MethodName: "CommitTransaction",
+			Handler:    _BrokerService_CommitTransaction_Handler,
+		},
+		{
+			MethodName: "RollbackTransaction",
+			Handler:    _BrokerService_RollbackTransaction_Handler,
+		},
+		{
+			MethodName: "CheckTransactionStatus",
+			Handler:    _BrokerService_CheckTransactionStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
