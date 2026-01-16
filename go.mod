@@ -2,8 +2,6 @@ module litemq
 
 go 1.23
 
-toolchain go1.24.11
-
 require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/pelletier/go-toml/v2 v2.1.0

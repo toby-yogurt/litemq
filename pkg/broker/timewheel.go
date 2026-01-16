@@ -237,7 +237,15 @@ func (tw *TimeWheel) calculateTargetSlot(delayDuration time.Duration) (*wheelLev
 		if delayDuration < maxDuration {
 			// 计算应该放在哪个槽位
 			ticks := int(delayDuration / wheel.tickDuration)
-			targetSlot := (wheel.currentSlot + ticks) % wheel.wheelSize
+
+			// 修复边界条件：当ticks正好是wheelSize的整数倍时，
+			// 应该放在最后一个槽位，避免放在当前槽位导致立即执行
+			var targetSlot int
+			if ticks%wheel.wheelSize == 0 && ticks > 0 {
+				targetSlot = wheel.wheelSize - 1
+			} else {
+				targetSlot = (wheel.currentSlot + ticks) % wheel.wheelSize
+			}
 
 			return wheel, targetSlot
 		}
@@ -333,10 +341,19 @@ func (tw *TimeWheel) cascadeMessages(fromLevel, toLevel *wheelLevel) {
 	// 推进上一层级的槽位
 	oldSlot := fromLevel.currentSlot
 	fromLevel.currentSlot = (fromLevel.currentSlot + 1) % fromLevel.wheelSize
+	newSlot := fromLevel.currentSlot
 
-	// 获取上一层级旧槽位的消息（推进前的位置）
-	sourceList := fromLevel.slots[oldSlot]
+	// 获取上一层级新到达槽位的消息（推进后的位置）
+	// 这是关键修复：处理新到达槽位的消息，而不是旧槽位
+	sourceList := fromLevel.slots[newSlot]
 	now := time.Now().UnixMilli()
+
+	logger.Debug("Cascading messages",
+		"fromLevel", fromLevel.level,
+		"toLevel", toLevel.level,
+		"oldSlot", oldSlot,
+		"newSlot", newSlot,
+		"messagesInSlot", sourceList.Len())
 
 	// 将消息重新分配到当前层级
 	var messagesToCascade []*DelayMessageEntry
@@ -348,6 +365,13 @@ func (tw *TimeWheel) cascadeMessages(fromLevel, toLevel *wheelLevel) {
 		if entry.ExpireTime <= now {
 			// 立即触发回调
 			if tw.onExpire != nil {
+				logger.Debug("Message expired during cascade, triggering callback",
+					"fromLevel", fromLevel.level,
+					"toLevel", toLevel.level,
+					"slot", newSlot,
+					"expireTime", entry.ExpireTime,
+					"now", now,
+					"offset", entry.CommitLogOffset)
 				go tw.onExpire(entry.CommitLogOffset)
 			}
 			sourceList.Remove(e)
@@ -358,7 +382,8 @@ func (tw *TimeWheel) cascadeMessages(fromLevel, toLevel *wheelLevel) {
 			ticks := int(delayDuration / toLevel.tickDuration)
 
 			// 如果延时时间在当前层级范围内，重新分配
-			if ticks < toLevel.wheelSize {
+			// 注意：使用 <= 而不是 <，允许剩余时间等于当前层级最大范围的消息降级
+			if ticks <= toLevel.wheelSize {
 				messagesToCascade = append(messagesToCascade, entry)
 				sourceList.Remove(e)
 			} else {
@@ -383,7 +408,15 @@ func (tw *TimeWheel) cascadeMessages(fromLevel, toLevel *wheelLevel) {
 		delayMs := entry.ExpireTime - now
 		delayDuration := time.Duration(delayMs) * time.Millisecond
 		ticks := int(delayDuration / toLevel.tickDuration)
-		targetSlot := (toLevel.currentSlot + ticks) % toLevel.wheelSize
+
+		var targetSlot int
+		// 修复边界条件：当ticks正好是wheelSize的整数倍时，
+		// 应该放在最后一个槽位，避免放在当前槽位导致立即执行
+		if ticks%toLevel.wheelSize == 0 && ticks > 0 {
+			targetSlot = toLevel.wheelSize - 1
+		} else {
+			targetSlot = (toLevel.currentSlot + ticks) % toLevel.wheelSize
+		}
 
 		toLevel.mu.Lock()
 		toLevel.slots[targetSlot].PushBack(entry)
